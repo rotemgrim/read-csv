@@ -1,42 +1,37 @@
+import "reflect-metadata";
+import {createConnection} from "typeorm";
+import {AppRoutes} from "./routes";
+import {Request, Response} from "express";
+import express from "express";
+import * as bodyParser from "body-parser";
+import { Title } from "./entity/Title";
 
-import readline from "readline";
-import fs from "fs";
+createConnection({
+    name: "db",
+    type: "sqlite",
+    database: "database.sqlite",
+    entities: [
+        Title
+    ],
+    synchronize: true,
+}).then(async connection => {
 
-import redis from "redis";
-import {performance} from "perf_hooks";
+    // create express app
+    const app = express();
+    app.use(bodyParser.json());
 
-type AKAS = {id: string, order: string, title: string, region: string, language: string, types: string, attributes: string, isOriginalTitle: string};
+    // register all application routes
+    AppRoutes.forEach(route => {
+        app[route.method](route.path, (request: Request, response: Response, next: Function) => {
+            route.action(request, response)
+                .then(() => next)
+                .catch(err => next(err));
+        });
+    });
 
-const client = redis.createClient({
-    host: "127.0.0.1",
-    port: 6379
-});
+    // run app
+    app.listen(3000);
 
-const t0 = performance.now();
-let count = 0;
-let tmp: any;
+    console.log("Express listening on port 3000");
 
-
-const rd = readline.createInterface({
-    input: fs.createReadStream("./title.akas.tsv"),
-    output: process.stdout
-});
-
-// titleId	ordering	title	region	language	types	attributes	isOriginalTitle
-rd.on('line', function(line) {
-    const list = {} as AKAS;
-    [list.id, list.order, list.title, list.region, list.language, list.types, list.attributes, list.isOriginalTitle] = line.split("\t");
-    if (list.isOriginalTitle === "1" && list.types === "original") {
-        client.set(list.title, list.id);
-        count++;
-        if (count % 100000 === 0) {
-            console.log(count);
-        }
-    }
-});
-
-rd.on("close", () => {
-    const t1 = performance.now();
-    console.log("read took " + (t1 - t0) / 1000 + " seconds with " + count + " rows.");
-    process.exit(0);
-});
+}).catch(e => console.log("TypeORM can't connect", e));
